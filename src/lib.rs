@@ -8,18 +8,14 @@ use core::fmt::Debug;
 use core::result::Result;
 use core::result::Result::Err;
 
-use embedded_hal::{
-    blocking::i2c,
-    blocking::serial,
-    serial as serial_nb,
-};
+use embedded_hal::i2c;
+use embedded_io::{Read, Write};
 
-use crate::{interface::{I2cInterface, ReadData, SerialInterface, WriteData}};
+use crate::interface::{I2cInterface, ReadData, SerialInterface, WriteData};
 use crate::registers::*;
 
-pub mod registers;
 pub mod interface;
-
+pub mod registers;
 
 mod private {
     use super::interface;
@@ -28,13 +24,12 @@ mod private {
 
     impl<UART> Sealed for interface::SerialInterface<UART> {}
 
-    impl<I2C, > Sealed for interface::I2cInterface<I2C> {}
+    impl<I2C> Sealed for interface::I2cInterface<I2C> {}
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 /// Error enum for ADS122x04
-pub enum Error<E>
-{
+pub enum Error<E> {
     /// The input is shorted
     ShortedInput,
     /// Inputs is open
@@ -48,8 +43,7 @@ pub enum Error<E>
 }
 
 /// Device handler for ADS122x04
-pub struct ADS122x04<BUS>
-{
+pub struct ADS122x04<BUS> {
     bus: BUS,
     /// offset of the ADC
     pub offset: i32,
@@ -70,12 +64,11 @@ pub struct ADS122x04<BUS>
 }
 
 impl<I2C, E> ADS122x04<I2cInterface<I2C>>
-    where
-        I2C: i2c::Write<Error=E> + i2c::WriteRead<Error=E>,
+where
+    I2C: i2c::I2c<Error = E>,
 {
     /// Create a new ADS122C04 device by supplying an I2C address and I2C handler
-    pub fn new_i2c(address: u8, i2c: I2C) -> Self
-    {
+    pub fn new_i2c(address: u8, i2c: I2C) -> Self {
         ADS122x04 {
             bus: I2cInterface { i2c, address },
             offset: 0,
@@ -98,8 +91,8 @@ impl<I2C, E> ADS122x04<I2cInterface<I2C>>
 }
 
 impl<UART, E> ADS122x04<SerialInterface<UART>>
-    where
-        UART: serial::Write<u8, Error=E> + serial_nb::Read<u8, Error=E>,
+where
+    UART: Write<Error = E> + Read<Error = E>,
 {
     /// Create a new ADS122C04 device by supplying a serial handler (UART)
     pub fn new_serial(serial: UART) -> Self {
@@ -125,14 +118,15 @@ impl<UART, E> ADS122x04<SerialInterface<UART>>
 }
 
 impl<BUS, E> ADS122x04<BUS>
-    where
-        BUS: ReadData<Error=Error<E>> + WriteData<Error=Error<E>>,
+where
+    BUS: ReadData<Error = Error<E>> + WriteData<Error = Error<E>>,
 {
     /// updates a specified config register
     fn update_reg(&mut self, reg: u8) -> Result<(), Error<E>> {
         match reg {
             0x00 => {
-                let val = (self.pga_bypass as u8) | ((self.gain as u8) << 1) | ((self.mux as u8) << 4);
+                let val =
+                    (self.pga_bypass as u8) | ((self.gain as u8) << 1) | ((self.mux as u8) << 4);
                 self.bus.write_register(0x00, val)
             }
             0x01 => {
@@ -220,7 +214,8 @@ impl<BUS, E> ADS122x04<BUS>
 
     /// Read the gain value
     pub fn get_gain(&mut self) -> Result<Gain, Error<E>> {
-        self.read_reg(0x00).map(|val| Gain::from((val >> 1) & 0b111))
+        self.read_reg(0x00)
+            .map(|val| Gain::from((val >> 1) & 0b111))
     }
 
     /// Set the input multiplexer (MUX)
@@ -372,7 +367,9 @@ impl<BUS, E> ADS122x04<BUS>
 
     /// Read the raw ADC value and subtract the offset
     pub fn get_raw_adc(&mut self) -> Result<i32, Error<E>> {
-        self.bus.read_data().map(|val| self.raw_to_signed(val) - self.offset)
+        self.bus
+            .read_data()
+            .map(|val| self.raw_to_signed(val) - self.offset)
     }
 
     /// Read the voltage of the ADC
